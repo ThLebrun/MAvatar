@@ -1,0 +1,78 @@
+---
+title: "Synthpop"
+output: html_document
+date: "2023-11-08"
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(synthpop)
+
+# Function to perform train-test split and log the IDs
+perform_split_log_ids <- function(data, dataset_name, seed_) {
+  
+  # Perform train-test split
+  set.seed(seed_) # Seed for reproducibility
+  split_index <- sample(1:nrow(data), size = round(0.8 * nrow(data)), replace = FALSE)
+  train_data <- data[split_index, ]
+  test_data <- data[-split_index, ]
+  
+  # Log IDs to a text file
+  write.table(train_data$ID, file = paste0("../AvatarPaper/datasets/", dataset_name, "/train_ids_", seed_, ".txt"), row.names = FALSE, col.names = FALSE)
+  write.table(test_data$ID, file = paste0("../AvatarPaper/datasets/", dataset_name, "/test_ids_", seed_, ".txt"), row.names = FALSE, col.names = FALSE)
+  
+  return(list(train_data, test_data))
+}
+
+# Function to export synthetic data to CSV
+export_synthetic_data <- function(synthetic_data, dataset_name, seed_) {
+  write.csv(synthetic_data, file = paste0("../AvatarPaper/datasets/", dataset_name, "/synthpop_", tolower(dataset_name), "_data_", seed_, ".csv"), row.names = FALSE)
+}
+```
+
+
+```{r cars}
+# Load and split AIDS dataset
+aids <- read.csv(paste0("../AvatarPaper/datasets/AIDS/aids_original_data.csv"), sep = ";", na.strings = c("NA", "", NA))
+
+aids <- aids[, -1]
+categorical <- c(
+  "hemo", "homo", "drugs", "karnof", "oprior", "z30", "zprior", "race",
+  "gender", "str2", "strat", "symptom", "treat", "offtrt", "r", "cens", "arms"
+)
+aids[categorical] <- lapply(aids[categorical], factor)
+
+for (seed_ in 1:5) {
+  # Perform train-test split and log the IDs for AIDS
+  aids_splits <- perform_split_log_ids(aids, "AIDS", seed_)
+
+  # Generate synthetic data for AIDS
+  synthpop_aids_res <- syn(aids_splits[[1]], seed = seed_)
+  synthpop_aids_data <- synthpop_aids_res$syn
+
+  # Export synthetic data to CSV for AIDS
+  export_synthetic_data(synthpop_aids_data, "AIDS", seed_)
+}
+```
+
+
+
+```{r pressure, echo=FALSE}
+# Load and split WBCD dataset
+wbcd <- read.csv("../AvatarPaper/datasets/WBCD/breast_cancer_wisconsin.csv", sep = ",", na.strings = c("NA", "", NA))
+wbcd <- wbcd[, -1]
+wbcd$Class <- as.factor(wbcd$Class)
+
+for (seed_ in 1:5) {
+  # Perform train-test split and log the IDs for WBCD
+  wbcd_splits <- perform_split_log_ids(wbcd, "WBCD", seed_)
+
+  # Generate synthetic data for WBCD
+  synthpop_wbcd_res <- syn(wbcd_splits[[1]], seed = seed_)
+  synthpop_wbcd_data <- synthpop_wbcd_res$syn
+
+  # Export synthetic data to CSV for WBCD
+  export_synthetic_data(synthpop_wbcd_data, "WBCD", seed_)
+}
+```
+

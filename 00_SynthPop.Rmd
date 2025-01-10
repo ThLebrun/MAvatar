@@ -1,0 +1,324 @@
+---
+title: "Synthpop"
+output: html_document
+date: "2023-11-08"
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(synthpop)
+library(jsonlite)
+library(rlist)
+library(reticulate)
+
+np <- import("numpy", convert = FALSE)
+
+perform_split_log_ids <- function(data, dataset_name, seed_) {
+  
+  # Perform train-test split
+  set.seed(seed_) # Seed for reproducibility
+  file_path = file.path("SynthPopListsMIA", paste0("ListMIA_", dataset_name,"_", seed_, ".json"))
+  train_index <- as.array(fromJSON(file_path))
+  return(data[train_index, ])
+}
+#
+
+# Function to export synthetic data to CSV
+export_synthetic_data <- function(synthetic_data, dataset_name, seed_) {
+  write.csv(synthetic_data, file = paste0("Data/DataMIA/SynthpopMIA_", dataset_name, "_", seed_, ".csv"), row.names = FALSE)
+}
+
+
+patch_nan <- function(df) {
+  imputed_data <- df
+  categorical <- names(df)[sapply(df, function(x) is.factor(x) || is.character(x))]
+  numerical <- names(df)[!names(df) %in% categorical]
+  
+  if (length(numerical) > 0) {
+    imputed_data[, numerical] <- apply(imputed_data[, numerical, drop = FALSE], 2, function(x) zoo::na.approx(x, na.rm = FALSE))
+  }
+  
+  for (col in categorical) {
+    imputed_data[, col] <- ifelse(is.factor(imputed_data[, col]), as.character(imputed_data[, col]), imputed_data[, col])
+    imputed_data[, col] <- ifelse(is.na(imputed_data[, col]), levels(imputed_data[, col])[which.max(table(imputed_data[, col]))], imputed_data[, col])
+  }
+  
+  return(imputed_data)
+}
+```
+
+
+```{r cars}
+# Load and split AIDS dataset
+aids <- read.csv(paste0("RawData/aids_original_data.csv"), sep = ";", na.strings = c("NA", "", NA))
+
+aids <- aids[, -1]
+categorical <- c(
+  "hemo", "homo", "drugs", "karnof", "oprior", "z30", "zprior", "race",
+  "gender", "str2", "strat", "symptom", "treat", "offtrt", "r", "cens", "arms"
+)
+aids[categorical] <- lapply(aids[categorical], factor)
+
+for (seed_ in 0:24) {
+  # Perform train-test split and log the IDs for AIDS
+  aids_train <- perform_split_log_ids(aids, "AIDS", seed_)
+  
+  # Generate synthetic data for AIDS
+  start_time <- Sys.time()
+  synthpop_aids_res <- syn(aids_train, seed = seed_)
+  end_time <- Sys.time()
+  time_diff <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  time_file_path <- file.path("TimeEval", paste0("AIDS_Synthpop_", seed_, ".txt"))
+  write(time_diff, time_file_path)
+  
+  synthpop_aids_data <- synthpop_aids_res$syn
+
+  # Export synthetic data to CSV for AIDS
+  export_synthetic_data(synthpop_aids_data, "AIDS", seed_)
+}
+synthpop_aids_res <- syn(aids_train, seed = seed_)
+synthpop_aids_data <- synthpop_aids_res$syn
+```
+
+
+
+```{r pressure, echo=FALSE}
+# Load and split WBCD dataset
+wbcd <- read.csv("RawData/breast_cancer_wisconsin.csv", sep = ",", na.strings = c("NA", "", NA))
+wbcd <- wbcd[, -1]
+wbcd$Class <- as.factor(wbcd$Class)
+
+for (seed_ in 0:24) {
+  # Perform train-test split and log the IDs for WBCD
+  wbcd_train <- perform_split_log_ids(wbcd, "WBCD", seed_)
+
+  # Generate synthetic data for WBCD
+  start_time <- Sys.time()
+  synthpop_wbcd_res <- syn(wbcd_train, seed = seed_)
+  end_time <- Sys.time()
+  time_diff <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  time_file_path <- file.path("TimeEval", paste0("WBCD_Synthpop_", seed_, ".txt"))
+  write(time_diff, time_file_path)
+  
+  synthpop_wbcd_data <- synthpop_wbcd_res$syn
+
+  # Export synthetic data to CSV for WBCD
+  export_synthetic_data(synthpop_wbcd_data, "WBCD", seed_)
+}
+```
+
+```{r pressure, echo=FALSE}
+
+laws <- read.csv("RawData/bar_pass_prediction.csv")
+
+cols_to_delete <- c('ID', 'other', 'asian', 'black', 'hisp', 'bar', 'bar_passed', 'index6040', 'race2', 'male',
+                    'sex', 'grad', 'Dropout', 'race', 'indxgrp', 'indxgrp2', 'gpa', 'parttime', 'decile1b', 'cluster',
+                    'bar1', 'bar1_yr', 'bar2', 'bar2_yr', 'dnn_bar_pass_prediction')
+  
+laws <- laws[, !names(laws) %in% cols_to_delete]
+
+
+# Set categorical columns
+categorical <- c('fulltime', 'fam_inc', 'tier')
+laws[categorical] <- lapply(laws[categorical], factor)
+# Patch for CTGAN/SDV
+
+
+for (seed_ in 0:24) {
+  # Perform train-test split and log the IDs for WBCD
+  laws_train <- perform_split_log_ids(laws, "laws", seed_)
+
+  # Generate synthetic data for WBCD
+  start_time <- Sys.time()
+  synthpop_laws_res <- syn(laws_train, seed = seed_)
+  end_time <- Sys.time()
+  time_diff <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  time_file_path <- file.path("TimeEval", paste0("LAWS_Synthpop_", seed_, ".txt"))
+  write(time_diff, time_file_path)
+  
+  synthpop_laws_data <- synthpop_laws_res$syn
+
+  # Export synthetic data to CSV for WBCD
+  export_synthetic_data(synthpop_laws_data, "laws", seed_)
+}
+```
+
+
+```{r pressure, echo=FALSE}
+
+credit <- read.csv("RawData/UCI_Credit_Card.csv")
+
+cols_to_delete <- c('ID')
+  
+credit <- credit[, !names(credit) %in% cols_to_delete]
+
+
+# Set categorical columns
+categorical <- c('SEX', 'EDUCATION', 'MARRIAGE', 'PAY_0', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6', 'default.payment.next.month')
+credit[categorical] <- lapply(credit[categorical], factor)
+# Patch for CTGAN/SDV
+
+
+for (seed_ in 0:24) {
+  # Perform train-test split and log the IDs for WBCD
+  credit_train <- perform_split_log_ids(credit, "credit", seed_)
+
+  # Generate synthetic data for WBCD
+  start_time <- Sys.time()
+  synthpop_credit_res <- syn(credit_train, seed = seed_)
+  end_time <- Sys.time()
+  time_diff <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  time_file_path <- file.path("TimeEval", paste0("CREDIT_Synthpop_", seed_, ".txt"))
+  write(time_diff, time_file_path)
+  
+  synthpop_credit_data <- synthpop_credit_res$syn
+
+  # Export synthetic data to CSV for WBCD
+  export_synthetic_data(synthpop_credit_data, "credit", seed_)
+}
+```
+
+
+
+
+```{r pressure, echo=FALSE}
+
+adult <- read.csv("RawData/adult.csv")
+
+cols_to_delete <- c('capital.loss','fnlwgt')
+  
+adult <- adult[, !names(adult) %in% cols_to_delete]
+
+
+# Set categorical columns
+categorical <- c('workclass', 'education', 'education.num','marital.status', 'occupation', 'relationship', 'race', 'sex', 'native.country','income')
+adult[categorical] <- lapply(adult[categorical], factor)
+# Patch for CTGAN/SDV
+
+
+for (seed_ in 0:24) {
+  # Perform train-test split and log the IDs for WBCD
+  adult_train <- perform_split_log_ids(adult, "adult", seed_)
+
+  # Generate synthetic data for WBCD
+  start_time <- Sys.time()
+  synthpop_adult_res <- syn(adult_train, seed = seed_)
+    end_time <- Sys.time()
+  time_diff <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  time_file_path <- file.path("TimeEval", paste0("ADULT_Synthpop_", seed_, ".txt"))
+  write(time_diff, time_file_path)
+  
+  synthpop_adult_data <- synthpop_adult_res$syn
+
+  # Export synthetic data to CSV for WBCD
+  export_synthetic_data(synthpop_adult_data, "adult", seed_)
+}
+```
+
+
+```{r pressure, echo=FALSE}
+
+fewadult <- read.csv("RawData/FewAdult.csv")
+
+cols_to_delete <- c('capital.loss','fnlwgt')
+  
+fewadult <- fewadult[, !names(fewadult) %in% cols_to_delete]
+
+
+# Set categorical columns
+categorical <- c('workclass', 'education', 'education.num','marital.status', 'occupation', 'relationship', 'race', 'sex', 'native.country','income')
+fewadult[categorical] <- lapply(fewadult[categorical], factor)
+# Patch for CTGAN/SDV
+
+
+for (seed_ in 0:24) {
+  # Perform train-test split and log the IDs for WBCD
+  fewadult_train <- perform_split_log_ids(fewadult, "fewadult", seed_)
+
+  # Generate synthetic data for WBCD
+  start_time <- Sys.time()
+  synthpop_fewadult_res <- syn(fewadult_train, seed = seed_)
+  end_time <- Sys.time()
+  time_diff <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  time_file_path <- file.path("TimeEval", paste0("FEWADULT_Synthpop_", seed_, ".txt"))
+  write(time_diff, time_file_path)
+  
+  synthpop_fewadult_data <- synthpop_fewadult_res$syn
+
+  # Export synthetic data to CSV for WBCD
+  export_synthetic_data(synthpop_fewadult_data, "fewadult", seed_)
+}
+```
+
+
+
+
+
+
+```{r pressure, echo=FALSE}
+
+compas <- read.csv("RawData/compas-scores.csv")
+
+cols_to_delete <- c('id', 'name', 'first', 'last', 'age', 'dob', 'screening_date', 'compas_screening_date','c_jail_in', 'c_jail_out', "c_case_number", 'c_offense_date', 'c_arrest_date', 'days_b_screening_arrest', "r_offense_date",'num_r_cases', 'r_case_number', 'r_charge_degree', 'r_days_from_arrest','r_charge_desc', 'r_jail_in', 'r_jail_out', 'is_violent_recid','num_vr_cases', 'vr_case_number', 'vr_charge_degree', 'vr_offense_date','vr_charge_desc', 'v_type_of_assessment', 'v_decile_score','v_score_text', 'v_screening_date','type_of_assessment', 'decile_score.1', 'decile_score', 'score_text', 'c_charge_desc')
+  
+compas <- compas[, !names(compas) %in% cols_to_delete]
+
+
+# Set categorical columns
+categorical <- c('sex', 'age_cat', 'race', 'c_charge_degree', 'is_recid')
+compas[categorical] <- lapply(compas[categorical], factor)
+# Patch for CTGAN/SDV
+
+
+for (seed_ in 0:24) {
+  # Perform train-test split and log the IDs for WBCD
+  compas_train <- perform_split_log_ids(compas, "compas", seed_)
+
+  # Generate synthetic data for WBCD
+  start_time <- Sys.time()
+  synthpop_compas_res <- syn(compas_train, seed = seed_)
+  end_time <- Sys.time()
+  time_diff <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  time_file_path <- file.path("TimeEval", paste0("COMPAS_Synthpop_", seed_, ".txt"))
+  write(time_diff, time_file_path)
+  
+  synthpop_compas_data <- synthpop_compas_res$syn
+
+  # Export synthetic data to CSV for WBCD
+  export_synthetic_data(synthpop_compas_data, "compas", seed_)
+}
+```
+
+
+```{r pressure, echo=FALSE}
+
+MEPS <- read.csv("RawData/MEPS.csv")
+
+  
+MEPS <- MEPS[, !names(MEPS) %in% cols_to_delete]
+
+
+# Set categorical columns
+categorical <- c('REGION', 'sex', 'race', 'MARRY', 'FTSTU', 'ACTDTY', 'HONRDC', 'RTHLTH', 'MNHLTH', 'HIBPDX', 'CHDDX', 'ANGIDX', 'MIDX', 'OHRTDX', 'STRKDX', 'EMPHDX', 'CHBRON', 'CHOLDX', 'CANCERDX', 'DIABDX', 'JTPAIN', 'ARTHDX', 'ARTHTYPE', 'ASTHDX', 'ADHDADDX', 'PREGNT', 'WLKLIM', 'ACTLIM', 'SOCLIM', 'COGLIM', 'DFHEAR42', 'DFSEE42', 'ADSMOK42', 'K6SUM42', 'PHQ242', 'EMPST', 'POVCAT', 'INSCOV', 'UTILIZATION')
+MEPS[categorical] <- lapply(MEPS[categorical], factor)
+# Patch for CTGAN/SDV
+
+
+for (seed_ in 0:24) {
+  # Perform train-test split and log the IDs for WBCD
+  MEPS_train <- perform_split_log_ids(MEPS, "MEPS", seed_)
+
+  # Generate synthetic data for WBCD
+  start_time <- Sys.time()
+  synthpop_MEPS_res <- syn(MEPS_train, seed = seed_)
+  end_time <- Sys.time()
+  time_diff <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  time_file_path <- file.path("TimeEval", paste0("MEPS_Synthpop_", seed_, ".txt"))
+  write(time_diff, time_file_path)
+  
+  synthpop_MEPS_data <- synthpop_MEPS_res$syn
+
+  # Export synthetic data to CSV for WBCD
+  export_synthetic_data(synthpop_MEPS_data, "MEPS", seed_)
+}
+```

@@ -1,0 +1,327 @@
+---
+title: "AIDS_survival"
+output: html_document
+date: "2024-05-16"
+---
+
+```{r setup, include=FALSE}
+library(librarian)
+
+# Main libraries
+librarian::shelf(mice, reshape2)
+
+# Library to use Python with R
+librarian::shelf(
+  reticulate,
+  # Multidimensional reduction method library
+  FactoMineR,
+  # Survival analysis
+  survival,
+  survminer,
+  # Display a corrplot
+  corrplot,
+  # Save corrplot as svg
+  svglite,
+  # Display a Sankey diagram
+  networkD3,
+  htmlwidgets,
+  forcats,
+  stringr,
+  # data table management
+  tibble,
+  dplyr,
+  kableExtra,
+  flextable
+)
+```
+
+
+```{ORIGINAL - SYNTHETIC survival curve analysis}
+get_survival_results <- function(data, synthetic, names = c("Original", "Synthetic")) {
+  data$arms <- as.factor(data$arms)
+
+  data_arms01 <- data[data$arms %in% c(0, 1), ]
+  data_arms01$arms <- as.factor(as.character(data_arms01$arms))
+
+  summary_cox <- summary(coxph(Surv(time = days / 7, event = cens) ~ arms, data = data_arms01))
+  res_original_01 <- cbind(summary_cox$coefficients, summary_cox$conf.int)
+
+  summary_cox <- summary(coxph(Surv(time = days / 7, event = cens) ~ arms, data = synthetic))
+  res_avat <- cbind(summary_cox$coefficients[, c("exp(coef)", "Pr(>|z|)")], summary_cox$conf.int[, c("lower .95", "upper .95")])
+
+  synthetic_arms01 <- synthetic[synthetic$arms %in% c(0, 1), ]
+  synthetic_arms01$arms <- as.factor(as.character(synthetic_arms01$arms))
+  summary_cox <- summary(coxph(Surv(time = days / 7, event = cens) ~ arms, data = synthetic_arms01))
+  res_synthetic_01 <- cbind(summary_cox$coefficients, summary_cox$conf.int)
+
+  data_arms01$type <- names[1]
+  synthetic_arms01$type <- names[2]
+  data_concat <- rbind(data_arms01, synthetic_arms01)
+  data_concat$type <- factor(data_concat$type, levels = names)
+
+  # Survival curve computation
+  survival_curve <- survfit(Surv(time = days / 7, event = cens) ~ factor(arms) + type, data = data_concat)
+
+  return(list("data" = data_concat, "curve" = survival_curve, "hazard_ratio_synthetic" = res_synthetic_01, "hazard_ratio_original" = res_original_01))
+}
+
+
+get_survival_plot <- function(survival_curve, survival_data, hazard_ratio_synthetic, hazard_ratio_original, names = c("Original", "Synthetic"), save=FALSE) {
+  color <- c("#7155c8", "#c85573")
+
+  options(repr.plot.width = 10, repr.plot.height = 7)
+  ggsurv <- ggsurvplot(survival_curve,
+    data = survival_data, conf.int = FALSE,
+    risk.table = FALSE,
+    legend.title = "Treatments",
+    censor.cex = 100,
+    linetype = c("type"),
+    size = 0.7, xlim = c(0, 155), ylim = c(0.5, 1), break.x.by = 40,
+    ggtheme = theme_minimal(),
+    xlab = "Time (week)",
+    ylab = "Proportion not reaching\nprimary end point",
+    censor.shape = "",
+    legend.labs = c("Arm 0", "Arm 0", "Arm 1", "Arm 1"),
+    palette = color
+  )
+
+  survival_plot <- ggsurv$plot <- ggsurv$plot +
+    theme_minimal() +
+    scale_linetype_discrete(name = c("Data source"), labels = names) +
+    geom_label(aes(x = 11, y = 0.625, label = "Hazard ratio"), size = 6, family = "sans", fontface = "bold", label.size = NA) +
+    geom_label(aes(x = -3, y = 0.58, label = paste0(
+      "Original: HR [CI: 95%] = ", formatC(hazard_ratio_original[2], format = "f", digits = 2),
+      " [", formatC(hazard_ratio_original[8], format = "f", digits = 2),
+      "-", formatC(hazard_ratio_original[9], format = "f", digits = 2),
+      "] ; p-value = ", formatC(hazard_ratio_original[5], format = "e", digits = 2),
+      paste0("\n", names[2], ": HR [CI: 95%] = "), formatC(hazard_ratio_synthetic[2], format = "f", digits = 2),
+      " [", formatC(hazard_ratio_synthetic[8], format = "f", digits = 2),
+      "-", formatC(hazard_ratio_synthetic[9], format = "f", digits = 2),
+      "] ; p-value = ", formatC(hazard_ratio_synthetic[5], format = "e", digits = 2), "  "
+    )),
+    size = 6.2, family = "sans", label.size = NA, hjust=0
+    ) +
+    theme(
+      legend.position = c(0.105, 0.5),
+      legend.background = element_rect(fill = "white", size = 0.5, linetype = "blank"),
+      legend.text = element_text(size = legend_text_size, color = "black", family = "sans"),
+      legend.title = element_text(size = legend_title_size, color = "black", family = "sans", face = "bold"),
+      axis.text = element_text(size = axis_text_size, color = "black", family = "sans"),
+      axis.title.y = element_text(vjust = 2),
+      axis.title = element_text(size = axis_title_size, color = "black", family = "sans"),
+      axis.line = element_line(colour = "black", size = 0.5, linetype = "solid", arrow = arrow(type = "closed", length = unit(5, "pt"))),
+      text = element_text(size = 14)
+    )
+  if (save){
+    ggsave(file = paste0("../figures/tmp_aids_", names[2], "_survival.svg"), plot = survival_plot, width = 10, height = 7, dpi = 290)
+  }
+
+  return(survival_plot)
+}
+```
+
+
+
+### Apply survival analysis
+
+# Avatar
+survival_avatar <- get_survival_results(data = data, synthetic = avatar, names = c("Original", "Avatar"))
+# Display time: about 15 seconds
+survival_avatar_data <- survival_avatar$data
+survival_avatar_curve <- survival_avatar$curve
+hazard_ratio_avatar <- survival_avatar$hazard_ratio_synthetic
+hazard_ratio_original <- survival_avatar$hazard_ratio_original
+
+plotAc <- get_survival_plot(
+  survival_curve = survival_avatar_curve,
+  survival_data = survival_avatar_data,
+  hazard_ratio_synthetic = hazard_ratio_avatar,
+  hazard_ratio_original = hazard_ratio_original,
+  names = c("Original", "Avatar")
+)
+
+# Synthpop
+survival_synthpop <- get_survival_results(data = data, synthetic = synthpop, names = c("Original", "Synthpop"))
+# Display time: about 15 seconds
+survival_data <- survival_synthpop$data
+survival_curve <- survival_synthpop$curve
+hazard_ratio_synthpop <- survival_synthpop$hazard_ratio_synthetic
+hazard_ratio_original <- survival_synthpop$hazard_ratio_original
+
+survival_plot_synthpop <- get_survival_plot(
+  survival_curve = survival_curve,
+  survival_data = survival_data,
+  hazard_ratio_synthetic = hazard_ratio_synthpop, 
+  hazard_ratio_original = hazard_ratio_original,
+  names = c("Original", "Synthpop")
+)
+
+# ctgan
+survival_ctgan <- get_survival_results(data = data, synthetic = ctgan, names = c("Original", "CT-GAN"))
+survival_data <- survival_ctgan$data
+survival_curve <- survival_ctgan$curve
+hazard_ratio_ctgan <- survival_ctgan$hazard_ratio_synthetic
+hazard_ratio_original <- survival_ctgan$hazard_ratio_original
+
+survival_plot_ctgan <- get_survival_plot(
+  survival_curve = survival_curve,
+  survival_data = survival_data,
+  hazard_ratio_synthetic = hazard_ratio_ctgan, 
+  hazard_ratio_original = hazard_ratio_original,
+  names = c("Original", "CT-GAN")
+)
+
+## Comparative hazard ratio analysis
+Hazard_Ratio <- c(hazard_ratio_original[2], hazard_ratio_avatar[2], hazard_ratio_synthpop[2], hazard_ratio_ctgan[2])
+ci_high <- c(hazard_ratio_original[9], hazard_ratio_avatar[9], hazard_ratio_synthpop[9], hazard_ratio_ctgan[9])
+ci_low <- c(hazard_ratio_original[8], hazard_ratio_avatar[8], hazard_ratio_synthpop[8], hazard_ratio_ctgan[8])
+p_values <- c(hazard_ratio_original[5], hazard_ratio_avatar[5], hazard_ratio_synthpop[5], hazard_ratio_ctgan[5])
+
+p_values_text <- paste0('p-value: ',  format.pval(p_values, digits = 3))
+type <- c('Original', 'Avatar', 'Synthpop', 'CT-GAN')
+
+aids_results <- data.frame(Hazard_Ratio, ci_high, ci_low, type, p_values_text)
+aids_results$type_f = factor(aids_results$type, levels=c('CT-GAN', 'Synthpop', 'Avatar','Original'))
+
+aids_comparative_plot <- ggplot(aids_results, aes(x = Hazard_Ratio, y = type_f, colour = type)) +
+  geom_errorbarh(aes(xmax = ci_high, xmin = ci_low), size = 0.6, height
+                 = 0.15) +
+  geom_text(
+      aes(label = p_values_text, x = as.numeric(Hazard_Ratio)), 
+      hjust = 0.5,
+      vjust = -2,
+      color = "black", 
+      family = "sans", 
+      size = 4.5,
+           ) +
+  geom_point(size = 2) +
+  scale_colour_manual(values = c('Original'= colors['original', 'color'],
+                                 'Avatar'=colors['avatar', 'color'],
+                                 'Synthpop'=colors['synthpop', 'color'] ,
+                                 'CT-GAN'=colors['ctgan', 'color']),
+                      breaks=c('Original', 'Avatar', 'Synthpop', 'CT-GAN')) +
+  theme_bw() +
+  xlim(c(0.1,0.8)) +
+  ylab(NULL) +
+  xlab("Hazard Ratio (95% CI)") +
+  theme(
+      text = element_text(size = 16),
+      legend.position="none",
+      legend.text = element_text(size = legend_text_size, color = "black", family = "sans"),
+      axis.text = element_text(size = axis_text_size, color = "black", family = "sans"),
+      axis.title = element_text(size = axis_title_size, color = "black", family = "sans"),
+      legend.background = element_rect(fill = "white", linetype = "solid")
+  )
+
+if (save){
+  ggsave(file = "../figures/aids_comparative_plot.svg", plot = aids_comparative_plot, width = 10, height = 7, dpi = 290)
+}
+
+## Comparative DCR NNDR analysis
+
+get_table_results <- function(data, data_type) {
+  selection <- filter(data, type == data_type)
+  
+  selection_DCR_median <- round(median(selection$dcr_values),2)
+  selection_DCR_5_quantile <- round(quantile(selection$dcr_values, 0.05),2)
+  selection_DCR_95_quantile <- round(quantile(selection$dcr_values, 0.95),2)
+  selection_to_display_DCR <- paste0(selection_DCR_median," [", selection_DCR_5_quantile, " - ", selection_DCR_95_quantile, "]")
+  selection_NNDR_median <- round(median(selection$nndr_values),2)
+  selection_NNDR_5_quantile <- round(quantile(selection$nndr_values, 0.05),2)
+  selection_NNDR_95_quantile <- round(quantile(selection$nndr_values, 0.95),2)
+  selection_to_display_NNDR <- paste0(selection_NNDR_median," [", selection_NNDR_5_quantile, " - ", selection_NNDR_95_quantile, "]")
+  
+  return(c(selection_to_display_DCR, selection_to_display_NNDR))
+}
+
+get_table_plot <- function(data) {
+
+  original_results <- get_table_results(data, data_type = "Reference")
+  avatar_results <- get_table_results(data, data_type = "Avatar")
+  synthpop_results <- get_table_results(data, data_type = "Synthpop")
+  ctgan_results <- get_table_results(data, data_type = "CT-GAN")
+  
+  display_results <- data.frame (Type  = c("Original", "Avatar", "Synthpop", "CT-GAN"),
+                                      "DCR median [q0.05 - q0.95]" = c(original_results[1], avatar_results[1], synthpop_results[1], ctgan_results[1]),
+                                      "NNDR median [q0.05 - q0.95]" = c(original_results[2], avatar_results[2], synthpop_results[2], ctgan_results[2])
+                                      ,check.names=F)
+  
+  set_flextable_defaults(font.family = 'sans-serif', font.size = 16)
+  ft <- flextable(display_results)
+  ft <- autofit(ft)
+  ft <- flextable::as_raster(bold(ft, bold = TRUE, part = "header"))
+  return(ft)
+}
+
+dcr_nndr_results_aids <- read.csv('../datasets/results_df/AIDS_DCR_NNDR_comparison_results.csv')
+aids_comparative_privacy <- get_table_plot(dcr_nndr_results_aids)
+
+## Supplementary graph : Arms 1-2-3-4 for avatar comparison
+data_typed <- data.frame(data)
+avatar_typed <- data.frame(avatar)
+data_typed$type <- "Original"
+avatar_typed$type <- "Avatar"
+data_concat <- rbind(data_typed, avatar_typed)
+data_concat$type <- factor(data_concat$type, levels = c("Original", "Avatar"))
+
+# Survival curve calculation
+surv <- survfit(Surv(time = days / 7, event = cens) ~ factor(arms) + type, data = data_concat)
+
+color <- c("#7155c8", "#c85573", "#95aa5b", "#c37e47")
+
+options(repr.plot.width = 12, repr.plot.height = 8)
+ggsurv <- ggsurvplot(surv,
+  data = data_concat,
+  conf.int = FALSE,
+  risk.table = FALSE,
+  legend.title = "Treatments",
+  legend = c(0.2, 0.3),
+  censor.cex = 100,
+  linetype = c("type"),
+  size = 0.8,
+  xlim = c(0, 155),
+  ylim = c(0.5, 1),
+  break.x.by = 40,
+  ggtheme = theme_minimal(),
+  xlab = "Time (week)",
+  ylab = "Proportion not reaching\nprimary end point",
+  censor.shape = "",
+  legend.labs = c("Arm 0", "Arm 0", "Arm 1", "Arm 1", "Arm 2", "Arm 2", "Arm 3", "Arm 3"),
+  palette = color
+)
+
+ggsurv$plot <- ggsurv$plot +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.105, 0.5),
+    legend.background = element_rect(fill = "white", size = 0.5, linetype = "blank"),
+    legend.text = element_text(size = legend_text_size, color = "black", family = "sans"),
+    axis.text = element_text(size = axis_text_size, color = "black", family = "sans"),
+    axis.title = element_text(size = axis_title_size, color = "black", family = "sans", face = "bold"),
+    axis.title.y = element_text(vjust = 2),
+    legend.title = element_text(size = legend_title_size, face = "bold", family = "sans"),
+    axis.line = element_line(colour = "black", size = 0.5, linetype = "solid", arrow = arrow(type = "closed", length = unit(5, "pt")))
+  ) +
+  scale_linetype_discrete(name = "Data source")
+
+ggsurv
+
+
+# Hazard ratio table  (only avatar dataset)
+data$arms <- as.factor(as.character(data$arms))
+avatar$arms <- as.factor(as.character(avatar$arms))
+summary_cox_original <- summary(coxph(Surv(time = days / 7, event = cens) ~ arms, data = data))
+res_original <- cbind(summary_cox_original$coefficients[, c("exp(coef)", "Pr(>|z|)")], summary_cox_original$conf.int[, c("lower .95", "upper .95")])
+summary_cox_avatar <- summary(coxph(Surv(time = days / 7, event = cens) ~ arms, data = avatar))
+res_avatar <- cbind(summary_cox_avatar$coefficients[, c("exp(coef)", "Pr(>|z|)")], summary_cox_avatar$conf.int[, c("lower .95", "upper .95")])
+
+
+rownames(res_original) <- paste0(rownames(res_original), "_original")
+rownames(res_avatar) <- paste0(rownames(res_avatar), "_avatar")
+res_concat <- as.data.frame(rbind(res_original, res_avatar))
+res_concat["Hazard Ratio"] <- formatC(res_concat[, 1], format = "f", digits = 2)
+res_concat["95% Confidence Interval"] <- paste0(formatC(res_concat[, 3], format = "f", digits = 2), "-", formatC(res_concat[, 4], format = "f", digits = 2))
+res_concat["p-value"] <- formatC(res_concat[, 2], format = "e", digits = 2)
+res_concat <- res_concat[c(1, 4, 2, 5, 3, 6), 5:7]
+row.names(res_concat) <- c("Original arm 1", "Avatar arm 1", "Original arm 2", "Avatar arm 2", "Original arm 3", "Avatar arm 3")
+
